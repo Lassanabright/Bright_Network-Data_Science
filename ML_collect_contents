@@ -1,0 +1,363 @@
+import codecs
+import unicodedata
+import re
+
+import pandas as pd
+from gensim.models import Word2Vec
+
+from django.conf import settings
+
+from web.models import Page, Event, SuccessStory, Job, Employer
+from web.management.commands import BNBaseCommand
+
+ML_FILES = settings.ML_FILES
+
+
+class Command(BNBaseCommand):
+    help = 'Collect all contents in the website'
+    path = ML_FILES + "stopwords.txt"
+    corpus_path = ML_FILES + "corpus.txt"
+    model_path = ML_FILES + "model.bin"
+    applications_path = ML_FILES + "job_applications.csv"
+
+    def handle(self, *args, **options):
+        all_data = self.collect(Page, Event, SuccessStory, Job, Employer)
+        all_data = [i for i in all_data if len(i) > 4]
+        documents = self.remove_stopwords(all_data, self.path)
+        sentences = self.get_data_word2vec(documents)
+        self.create_corpus_file(self.corpus_path, sentences)
+        model = self.get_Word2vec_model(self.model_path, sentences)
+
+    def get_Word2vec_model(self, model_path, sentences):
+        model = Word2Vec(sentences, min_count=5, size=350,
+                         window=5,
+                         workers=10)
+        model.train(sentences, total_examples=len(sentences), epochs=100)
+        model.save(model_path)
+        return model
+
+    def remove_pages(self, content):
+        res = True
+        if len(content) < 10:
+            res = False
+        return res
+
+    def strip_accents(self, text):
+        """
+        Strip accents from input String.
+        :param text: The input string.
+        :type text: String.
+        :returns: The processed String.
+        :rtype: String.
+        """
+        try:
+            text = unicode(text, 'utf-8')
+        except (TypeError, NameError):
+            pass
+        text = unicodedata.normalize('NFD', text)
+        text = text.encode('ascii', 'ignore')
+        text = text.decode("utf-8")
+        return str(text)
+
+    def clean_page(self, title, content):
+        replace_list = [("&bull;", "\r\n "), ("bull;", "\r\n "),
+                        ("\r\r\n\t", " "), ("\r\r\n", " "),
+                        (".", "\r\n "), (":", ""), ("&lsquo;", ""),
+                        ("lsquo;", ""), ("\r\r\n\r\r\n", " "), ("...", " "),
+                        ("&#39;s", ""), ("#39;s", ""), ("&nbsp;", " "),
+                        ("nbsp;", " "), ("&#39;", ""), ("#39;", ""),
+                        ("amp;", ""), ("&middot;", ""), ("middot;", ""),
+                        (",", ""), ("?", "\r\n "), ("!", "\r\n "),
+                        ("  ", " "), ("&rsquo;", " "), ("rsquo;", " "),
+                        ("\t", " "), ("\r\n\r\n", "\r\n "), (" \r\n ", "\r\n "),
+                        ("\r\n \r\n", "\r\n"), ("&ndash;", " "), ("ndash;", " "),
+                        ("&pound;", ""), ("pound;", ""), ("  ", ""), ("   ", ""),
+                        ("  ", ""), ("   ", ""), ("(", ""), (")", ""),
+                        (" - ", " "), (" / ", " "), ("/", " "), ("   ", "")]
+
+        for pattern, replacement in replace_list:
+            content = content.replace(pattern, replacement)
+
+        content = re.sub(r"<.*?>", "", content, flags=re.DOTALL)
+        title = title.replace("?", "").replace("!", "").replace(".", "")
+        res = title + "\r\n " + content
+        to_replace=[("\r\n\r\n", ""), (" \r\n ", " "), ("&eacute;", "e"),
+                    ("&ldquo;", ""), ("ldquo;", ""), ("&rdquo;", ""),
+                    ("rdquo;", "")]
+
+        for pattern, replacement in to_replace:
+            res = res.replace(pattern, replacement)
+        res = ''.join([i for i in res if not i.isdigit()])
+        return res
+
+    def clean_job(self, title, content):
+        replace_list = [("&bull;", "\r\n "), ("bull;", "\r\n "),
+                        ("\r\r\n\t", " "), ("\r\r\n", " "),
+                        (".", "\r\n "), (":", ""), ("&lsquo;", ""),
+                        ("lsquo;", ""), ("\r\r\n\r\r\n", " "), ("...", " "),
+                        ("&#39;s", ""), ("#39;s", ""), ("&nbsp;", " "),
+                        ("nbsp;", " "), ("&#39;", ""), ("#39;", ""),
+                        ("amp;", ""), ("&middot;", ""), ("middot;", ""),
+                        (",", ""), ("?", "\r\n "), ("!", "\r\n "),
+                        ("  ", " "), ("&rsquo;", " "), ("rsquo;", " "),
+                        ("\t", " "), ("\r\n\r\n", "\r\n "), (" \r\n ", "\r\n "),
+                        ("\r\n \r\n", "\r\n"), ("&ndash;", " "), ("ndash;", " "),
+                        ("&pound;", ""), ("pound;", ""), ("  ", ""), ("   ", ""),
+                        ("  ", ""), ("   ", ""), ("(", ""), (")", ""),
+                        (" - ", " "), (" / ", " "), ("/", " "), ("   ", "")]
+
+        for pattern, replacement in replace_list:
+            content = content.replace(pattern, replacement)
+
+        content = re.sub(r"<.*?>", "", content, flags=re.DOTALL)
+        title = title.replace("?", "").replace("!", "").replace(".", "")
+        res = title + "\r\n " + content
+        to_replace = [("\r\n\r\n", ""), (" \r\n ", " "), ("&eacute;", "e"),
+                      ("&ldquo;", ""), ("ldquo;", ""), ("&rdquo;", ""),
+                      ("rdquo;", "")]
+
+        for pattern, replacement in to_replace:
+            res = res.replace(pattern, replacement)
+        res = ''.join([i for i in res if not i.isdigit()])
+        return res
+
+    def clean_story(self, title, content):
+        replace_list = [("&bull;", "\r\n "), ("bull;", "\r\n "),
+                        ("\r\r\n\t", " "), ("\r\r\n", " "),
+                        (".", "\r\n "), (":", ""), ("&lsquo;", ""),
+                        ("lsquo;", ""), ("\r\r\n\r\r\n", " "), ("...", " "),
+                        ("&#39;s", ""), ("#39;s", ""), ("&nbsp;", " "),
+                        ("nbsp;", " "), ("&#39;", ""), ("#39;", ""),
+                        ("amp;", ""), ("&middot;", ""), ("middot;", ""),
+                        (",", ""), ("?", "\r\n "), ("!", "\r\n "),
+                        ("  ", " "), ("&rsquo;", " "), ("rsquo;", " "),
+                        ("\t", " "), ("\r\n\r\n", "\r\n "), (" \r\n ", "\r\n "),
+                        ("\r\n \r\n", "\r\n"), ("&ndash;", " "), ("ndash;", " "),
+                        ("&pound;", ""), ("pound;", ""), ("  ", ""), ("   ", ""),
+                        ("  ", ""), ("   ", ""), ("(", ""), (")", ""),
+                        (" - ", " "), (" / ", " "), ("/", " "), ("   ", "")]
+
+        for pattern, replacement in replace_list:
+            content = content.replace(pattern, replacement)
+
+        content = re.sub(r"<.*?>", "", content, flags=re.DOTALL)
+        title = title.replace("?", "").replace("!", "").replace(".", "")
+        res = title + "\r\n " + content
+        to_replace = [("\r\n\r\n", ""), (" \r\n ", " "), ("&eacute;", "e"),
+                      ("&ldquo;", ""), ("ldquo;", ""), ("&rdquo;", ""),
+                      ("rdquo;", "")]
+
+        for pattern, replacement in to_replace:
+            res = res.replace(pattern, replacement)
+        res = ''.join([i for i in res if not i.isdigit()])
+        return res
+
+    def clean_event(self, title, content):
+        replace_list = [("&bull;", "\r\n "), ("bull;", "\r\n "),
+                        ("\r\r\n\t", " "), ("\r\r\n", " "),
+                        (".", "\r\n "), (":", ""), ("&lsquo;", ""),
+                        ("lsquo;", ""), ("\r\r\n\r\r\n", " "), ("...", " "),
+                        ("&#39;s", ""), ("#39;s", ""), ("&nbsp;", " "),
+                        ("nbsp;", " "), ("&#39;", ""), ("#39;", ""),
+                        ("amp;", ""), ("&middot;", ""), ("middot;", ""),
+                        (",", ""), ("?", "\r\n "), ("!", "\r\n "),
+                        ("  ", " "), ("&rsquo;", " "), ("rsquo;", " "),
+                        ("\t", " "), ("\r\n\r\n", "\r\n "), (" \r\n ", "\r\n "),
+                        ("\r\n \r\n", "\r\n"), ("&ndash;", " "), ("ndash;", " "),
+                        ("&pound;", ""), ("pound;", ""), ("  ", ""), ("   ", ""),
+                        ("  ", ""), ("   ", ""), ("(", ""), (")", ""),
+                        (" - ", " "), (" / ", " "), ("/", " "), ("   ", "")]
+
+        for pattern, replacement in replace_list:
+            content = content.replace(pattern, replacement)
+
+        content = re.sub(r"<.*?>", "", content, flags=re.DOTALL)
+        title = title.replace("?", "").replace("!", "").replace(".", "")
+        res = title + "\r\n " + content
+        to_replace = [("\r\n\r\n", ""), (" \r\n ", " "), ("&eacute;", "e"),
+                      ("&ldquo;", ""), ("ldquo;", ""), ("&rdquo;", ""),
+                      ("rdquo;", "")]
+
+        for pattern, replacement in to_replace:
+            res = res.replace(pattern, replacement)
+        res = ''.join([i for i in res if not i.isdigit()])
+        return res
+
+    def clean_employer(self, title, content, sector):
+        replace_list = [("&bull;", "\r\n "), ("bull;", "\r\n "),
+                        ("\r\r\n\t", " "), ("\r\r\n", " "),
+                        (".", "\r\n "), (":", ""), ("&lsquo;", ""),
+                        ("lsquo;", ""), ("\r\r\n\r\r\n", " "), ("...", " "),
+                        ("&#39;s", ""), ("#39;s", ""), ("&nbsp;", " "),
+                        ("nbsp;", " "), ("&#39;", ""), ("#39;", ""),
+                        ("amp;", ""), ("&middot;", ""), ("middot;", ""),
+                        (",", ""), ("?", "\r\n "), ("!", "\r\n "),
+                        ("  ", " "), ("&rsquo;", " "), ("rsquo;", " "),
+                        ("\t", " "), ("\r\n\r\n", "\r\n "), (" \r\n ", "\r\n "),
+                        ("\r\n \r\n", "\r\n"), ("&ndash;", " "), ("ndash;", " "),
+                        ("&pound;", ""), ("pound;", ""), ("  ", ""), ("   ", ""),
+                        ("  ", ""), ("   ", ""), ("(", ""), (")", ""),
+                        (" - ", " "), (" / ", " "), ("/", " "), ("   ", "")]
+
+        for pattern, replacement in replace_list:
+            content = content.replace(pattern, replacement)
+
+        content = re.sub(r"<.*?>", "", content, flags=re.DOTALL)
+        title = title.replace("?", "").replace("!", "").replace(".", "")
+        res = title + "\r\n " + sector + "\r\n " + content
+        to_replace = [("\r\n\r\n", ""), (" \r\n ", " "), ("&eacute;", "e"),
+                      ("&ldquo;", ""), ("ldquo;", ""), ("&rdquo;", ""),
+                      ("rdquo;", "")]
+
+        for pattern, replacement in to_replace:
+            res = res.replace(pattern, replacement)
+        res = ''.join([i for i in res if not i.isdigit()])
+        return res
+
+
+    def collect(self, Page, Event, SuccessStory, Job, Employer):
+        page_content = []
+        job_description = []
+        employer_description = []
+        stories_content = []
+        events_content = []
+        for page in Page.objects.all():
+            content = page.content
+            page_title = page.title()
+            page_content.append(self.clean_page(page_title, content))
+        page_content = [i for i in page_content if self.remove_pages(i)]
+        for job in Job.objects.all():
+            title = job.title
+            content = job.description
+            job_description.append(self.clean_job(title, content))
+        for employer in Employer.objects.all():
+            title = employer.title
+            content = employer.description
+            employer_sectors = []
+            for sector in employer.sectors.all():
+                employer_sectors.append(sector.title)
+            employer_sector_title = ""
+            for i in employer_sectors:
+                employer_sector_title += i + " "
+            employer_description.append(self.clean_employer(title, content, employer_sector_title))
+        university_name, degree_subject_name=self.load_uni(self.applications_path)
+        uni_data = [self.clean_uni(university_name[i], degree_subject_name[i]) for i in range(len(university_name))]
+        uni_data = [i for i in uni_data if self.remove_pages(i)]
+        uni_data = list(set(uni_data))
+        for story in SuccessStory.objects.all():
+            title = story.title()
+            content = story.content
+            stories_content.append(self.clean_story(title, content))
+        for event in Event.objects.all():
+            title = event.title
+            content = event.description
+            events_content.append(self.clean_event(title, content))
+        all_data = page_content+job_description+stories_content+events_content+employer_description+uni_data
+        return all_data
+
+    def load_uni(self, path):
+        d=pd.read_csv(path)
+        university_name = d['university_name'].values
+        degree_subject_name = d["degree_subject"].values
+        return university_name,degree_subject_name
+
+    def clean_uni(self, uni_name, degree_name):
+        content = ""
+        if isinstance(uni_name, basestring):
+            content += uni_name + " "
+        if isinstance(degree_name, basestring):
+            content += degree_name
+        replace_list = [("&bull;", "\r\n "), ("bull;", "\r\n "),
+                        ("\r\r\n\t", " "), ("\r\r\n", " "),
+                        (".", "\r\n "), (":", ""), ("&lsquo;", ""),
+                        ("lsquo;", ""), ("\r\r\n\r\r\n", " "), ("...", " "),
+                        ("&#39;s", ""), ("#39;s", ""), ("&nbsp;", " "),
+                        ("nbsp;", " "), ("&#39;", ""), ("#39;", ""),
+                        ("amp;", ""), ("&middot;", ""), ("middot;", ""),
+                        (",", ""), ("?", "\r\n "), ("!", "\r\n "),
+                        ("  ", " "), ("&rsquo;", " "), ("rsquo;", " "),
+                        ("\t", " "), ("\r\n\r\n", "\r\n "), (" \r\n ", "\r\n "),
+                        ("\r\n \r\n", "\r\n"), ("&ndash;", " "), ("ndash;", " "),
+                        ("&pound;", ""), ("pound;", ""), ("  ", ""), ("   ", ""),
+                        ("  ", ""), ("   ", ""), ("(", ""), (")", ""),
+                        (" - ", " "), (" / ", " "), ("/", " "), ("   ", "")]
+
+        for pattern, replacement in replace_list:
+            content = content.replace(pattern, replacement)
+        res = content + "\r\n "
+        res = ''.join([i for i in res if not i.isdigit()])
+        return res
+
+    def remove_stopwords(self, x, path):
+        res = []
+        with open(path) as stopfile:
+            stopwords = stopfile.read()
+            stop = stopwords.split()
+        for i,document in enumerate(x):
+            sentences = document.split("\r\n")
+            if len(sentences) > 1:
+                new_sentences = []
+                for sentence in sentences:
+                    words=sentence.split(" ")
+                    try:
+                        lk = ''
+                        while True:
+                            words.remove(lk)
+                    except:
+                        pass
+                    if len(words) > 1:
+                        new_words = []
+                        for word in words:
+                            word = word.lower()
+                            if word not in stop:
+                                new_words.append(word)
+                        a = ""
+                        for l, k in enumerate(new_words):
+                            if l < len(new_words):
+                                a += k+" "
+                            else:
+                                a += k
+                        a += "\r\n "
+                        new_sentences.append(a)
+            b = ""
+            for k in new_sentences:
+                b += k
+            res.append(b)
+        return res
+
+    def get_data_word2vec(self, x):
+        res = []
+        for document in x:
+            sentences = document.split("\r\n")
+            for sentence in sentences:
+                if len(sentence)>1:
+                    sentence = sentence.replace("&pound;", "").replace("We;re", "").replace(";", " ")
+                    sentence = sentence.replace("We;ll", "").replace(":", " ").replace("&quot;", "")
+                    sentence = ''.join([i for i in sentence if not i.isdigit()])
+                    a = sentence.split(" ")
+                    try:
+                        lk = ''
+                        while True:
+                            a.remove(lk)
+                    except:
+                        pass
+                    res.append(a)
+        return res
+
+    def create_corpus_file(self,path, x):
+        f = codecs.open(path, "w", "utf-8")
+        for item in x:
+            a = ""
+            for i in item:
+                a += i+" "
+            a += "\n"
+            try:
+                f.write(a)
+            except UnicodeDecodeError:
+                # remove accents
+                unaccented_string = self.strip_accents(a)
+                f.write(unaccented_string)
+        f.close()
+
+#model = Word2Vec.load("model.bin")
+#model.wv.most_similar
