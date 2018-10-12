@@ -1,0 +1,6 @@
+from django.db import models
+
+
+class Number_Job_applications(models.Model):
+    day = models.DateField()
+    nb_applications = models.IntegerField()
