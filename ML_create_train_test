@@ -1,0 +1,313 @@
+from collections import Counter
+from django.core.management.base import BaseCommand, CommandError
+from brightnetwork.settings_dev import ML_FILES
+from web.models import Job,JobApplication,Profile,Employer,University,Subject
+import pandas as pd
+import datetime
+
+
+class Command(BaseCommand):
+    help = 'Create the job applications and identify the jobs a member didnt apply yet and put them in test dataset'
+    model_path = ML_FILES + "model.bin"
+    applications_path = ML_FILES + "job_applications.csv"
+    training_path = ML_FILES + "train.csv"
+
+    def handle(self, *args, **options):
+        df = pd.read_csv(self.applications_path)
+        df['job_opening_date'] = pd.to_datetime(df['job_opening_date'])
+        df['job_closing_date'] = pd.to_datetime(df['job_closing_date'])
+        df = df[df.user_id.notnull()]
+        df = df[df.job_id.notnull()]
+
+        users_id = self.get_users_id(df)
+        number_users_applied=len(users_id)
+        jobs_id = self.get_jobs_id(df)
+        number_jobs_applied=len(jobs_id)
+
+        jobs_per_user = self.get_jobs_per_user(users_id, df)
+        #recommendations_per_user = self.get_jobs_to_recommend(users_id, df, jobs_per_user)
+
+        a = list(jobs_per_user.keys())
+        train_user_id = [int(i) for i in a]
+        train_user_applications = list(jobs_per_user.values())
+
+        training_set = self.make_dataset(train_user_id, train_user_applications)
+
+        training_set.to_csv(self.training_path, sep=',', encoding='utf-8')
+
+    def study_applied_jobs(self, job_ids, job_applications):
+        job_type = []
+        for job_id in job_ids:
+            job_info = job_applications[job_applications["job_id"] == job_id].iloc[0]
+            job_type.append(job_info["job_type"])
+        count_job_type = dict(Counter(job_type))
+        return count_job_type
+
+    def study_applied_jobs_week(self):
+        return
+
+
+    def get_users_id(self,df):
+        users_id = df.user_id.values
+        users_id = list(set(users_id))
+        return users_id
+
+    def get_jobs_id(self,df):
+        jobs_id = df.job_id.values
+        jobs_id = list(set(jobs_id))
+        return jobs_id
+
+    def get_jobs_per_user(self,users_id, df):
+        n = len(users_id)
+        print("n :", n)
+        print("users collected")
+        jobs_per_user = {}
+        for i, user in enumerate(users_id):
+            if i % 5000 == 0:
+                print("progress :", i, n)
+            x = df[df["user_id"] == user]
+            x = x[x.job_id.notnull()]
+            if x.shape[0] > 0:
+                job_applications = x["job_id"].values
+                job_applications = list(set(job_applications))
+                jobs_per_user[str(int(user))] = job_applications
+        print("Jobs per user collected")
+        return jobs_per_user
+
+    def get_jobs_to_recommend(self,all_users, df, jobs_per_user):
+        n = len(all_users)
+        recommendations_per_user = {}
+        now = datetime.datetime.now()
+        c = df[df['job_closing_date'].isnull()]
+        d = df[df['job_closing_date'] >= now]
+        d = d[d.job_id.notnull()]
+        jobs_to_apply_to = list(d["job_id"].values) + list(c["job_id"].values)
+        jobs_to_apply_to = list(set(jobs_to_apply_to))
+        print("number of jobs to apply to :", len(jobs_to_apply_to))
+        print("recommendations started")
+        for i, user in enumerate(all_users):
+            if i % 50000 == 0:
+                print("progress :", i, n)
+            try:
+                job_applications = jobs_per_user[str(int(user))]
+                recommendations = list(set(jobs_to_apply_to) - set(job_applications))
+                recommendations_per_user[str(int(user))] = recommendations
+            except:
+                recommendations_per_user[str(int(user))] = jobs_to_apply_to
+        return recommendations_per_user
+
+
+    def make_dataset(self, ids, applications):
+        n = len(ids)
+        d = {}
+        unique_users=[]
+        unique_jobs=[]
+        jobs_details={}
+        users_details={}
+        user_id = []
+        job_id = []
+        employer_id = []
+        job_opening_date = []
+        job_closing_date = []
+        job_description = []
+        job_type = []
+        job_title = []
+        employer_title = []
+        employer_description = []
+        employer_sector_title = []
+        job_sector_title = []
+        gender = []
+        graduation_year = []
+        degree_subject_id = []
+        university_id = []
+        university_name = []
+        degree_subject_name = []
+        career_preference = []
+        ethnicity = []
+        school_type = []
+        career_status=[]
+        for i in range(n):
+            if i % 5000 == 0:
+                print("progress :", i, n)
+            user_applications = applications[i]
+            nb_applications = len(user_applications)
+            for j in range(nb_applications):
+                if user_applications[j] not in unique_jobs:
+                    jobs_details[str(user_applications[j])]={}
+                    job_id.append(user_applications[j])
+                    job_infos = Job.objects.get(pk=user_applications[j])
+                    employer_id.append(job_infos.employer.pk)
+                    job_opening_date.append(job_infos.opening_date)
+                    job_closing_date.append(job_infos.closing_date)
+                    job_description.append(job_infos.description)
+                    job_type.append(job_infos.job_type)
+                    job_title.append(job_infos.title)
+                    employer_infos = Employer.objects.get(pk=job_infos.employer.pk)
+                    employer_title.append(employer_infos.title)
+                    employer_description.append(employer_infos.description)
+                    job_sectors = []
+                    employer_sectors = []
+                    for sector in job_infos.sectors.all():
+                        job_sectors.append(sector.title)
+                    for sector in employer_infos.sectors.all():
+                        employer_sectors.append(sector.title)
+                    job_sector = ""
+                    employer_sector = ""
+                    for ab in job_sectors:
+                        job_sector += ab + " "
+                    for ab in employer_sectors:
+                        employer_sector += ab + " "
+                    employer_sector_title.append(employer_sector)
+                    job_sector_title.append(job_sector)
+                    unique_jobs.append(user_applications[j])
+                    jobs_details[str(user_applications[j])]["job_id"] = user_applications[j]
+                    jobs_details[str(user_applications[j])]["employer_id"] = job_infos.employer.pk
+                    jobs_details[str(user_applications[j])]["job_opening_date"] = job_infos.opening_date
+                    jobs_details[str(user_applications[j])]["job_closing_date"] = job_infos.closing_date
+                    jobs_details[str(user_applications[j])]["job_description"] = job_infos.description
+                    jobs_details[str(user_applications[j])]["job_type"] = job_infos.job_type
+                    jobs_details[str(user_applications[j])]["job_title"] = job_infos.title
+                    jobs_details[str(user_applications[j])]["employer_title"] = employer_infos.title
+                    jobs_details[str(user_applications[j])]["employer_description"] = employer_infos.description
+                    jobs_details[str(user_applications[j])]["employer_sector_title"] = employer_sector
+                    jobs_details[str(user_applications[j])]["job_sector_title"] = job_sector
+                else:
+                    job_id.append(jobs_details[str(user_applications[j])]["job_id"])
+                    employer_id.append(jobs_details[str(user_applications[j])]["employer_id"])
+                    job_opening_date.append(jobs_details[str(user_applications[j])]["job_opening_date"])
+                    job_closing_date.append(jobs_details[str(user_applications[j])]["job_closing_date"])
+                    job_description.append(jobs_details[str(user_applications[j])]["job_description"])
+                    job_type.append(jobs_details[str(user_applications[j])]["job_type"])
+                    job_title.append(jobs_details[str(user_applications[j])]["job_title"])
+                    employer_title.append(jobs_details[str(user_applications[j])]["employer_title"])
+                    employer_description.append(jobs_details[str(user_applications[j])]["employer_description"])
+                    employer_sector_title.append(jobs_details[str(user_applications[j])]["employer_sector_title"])
+                    job_sector_title.append(jobs_details[str(user_applications[j])]["job_sector_title"])
+                if ids[i] not in unique_users:
+                    users_details[str(ids[i])]={}
+                    user_info = Profile.objects.get(pk=ids[i])
+                    user_id.append(ids[i])
+                    try:
+                        gender.append(user_info.gender)
+                    except:
+                        gender.append(None)
+                    try:
+                        ethnicity.append(user_info.etnicity)
+                    except:
+                        ethnicity.append(None)
+                    try:
+                        school_type.append(user_info.school_type)
+                    except:
+                        school_type.append(None)
+                    try:
+                        graduation_year.append(user_info.graduation_year)
+                    except:
+                        graduation_year.append(None)
+                    try:
+                        degree_subject_id.append(user_info.degree_subject.pk)
+                    except:
+                        degree_subject_id.append(None)
+                    try:
+                        university_id.append(user_info.university.pk)
+                    except:
+                        university_id.append(None)
+                    try:
+                        university_name.append(University.objects.get(pk=user_info.university.pk).name)
+                    except:
+                        university_name.append(None)
+                    try:
+                        degree_subject_name.append(Subject.objects.get(pk=user_info.degree_subject.pk).name)
+                    except:
+                        degree_subject_name.append(None)
+                    career_interests = []
+                    for sector in user_info.sector_interests.all():
+                        career_interests.append(sector.title)
+                    user_preference = ""
+                    for ab in career_interests:
+                        user_preference += ab + " "
+                    try:
+                        career_preference.append(user_preference)
+                    except:
+                        career_preference.append(None)
+                    try:
+                        career_status.append(user_info.career_status)
+                    except:
+                        career_status.append(None)
+                    unique_users.append(ids[i])
+                    users_details[str(ids[i])]["user_id"] = ids[i]
+                    try:
+                        users_details[str(ids[i])]["gender"] = user_info.gender
+                    except:
+                        users_details[str(ids[i])]["gender"] = None
+                    try:
+                        users_details[str(ids[i])]["career_status"] = user_info.career_status
+                    except:
+                        users_details[str(ids[i])]["career_status"] = None
+                    try :
+                        users_details[str(ids[i])]["ethnicity"] = user_info.ethnicity
+                    except:
+                        users_details[str(ids[i])]["ethnicity"] = None
+                    try:
+                        users_details[str(ids[i])]["school_type"] = user_info.school_type
+                    except:
+                        users_details[str(ids[i])]["school_type"] = None
+                    try:
+                        users_details[str(ids[i])]["graduation_year"] = user_info.graduation_year
+                    except:
+                        users_details[str(ids[i])]["graduation_year"] = None
+                    try:
+                        users_details[str(ids[i])]["degree_subject_id"] = user_info.degree_subject.pk
+                    except:
+                        users_details[str(ids[i])]["degree_subject_id"] = None
+                    try:
+                        users_details[str(ids[i])]["university_id"] = user_info.university.pk
+                    except:
+                        users_details[str(ids[i])]["university_id"] = None
+                    try:
+                        users_details[str(ids[i])]["university_name"] = University.objects.get(pk=user_info.university.pk).name
+                    except:
+                        users_details[str(ids[i])]["university_name"] = None
+                    try:
+                        users_details[str(ids[i])]["degree_subject_name"] = Subject.objects.get(pk=user_info.degree_subject.pk).name
+                    except:
+                        users_details[str(ids[i])]["degree_subject_name"] = None
+                    try:
+                        users_details[str(ids[i])]["user_preference"] = user_preference
+                    except:
+                        users_details[str(ids[i])]["user_preference"] = None
+                else:
+                    user_id.append(users_details[str(ids[i])]["user_id"])
+                    gender.append(users_details[str(ids[i])]["gender"])
+                    ethnicity.append(users_details[str(ids[i])]["ethnicity"])
+                    school_type.append(users_details[str(ids[i])]["school_type"])
+                    graduation_year.append(users_details[str(ids[i])]["graduation_year"])
+                    career_status.append(users_details[str(ids[i])]["career_status"])
+                    degree_subject_id.append(users_details[str(ids[i])]["degree_subject_id"])
+                    university_id.append(users_details[str(ids[i])]["university_id"])
+                    university_name.append(users_details[str(ids[i])]["university_name"])
+                    degree_subject_name.append(users_details[str(ids[i])]["degree_subject_name"])
+                    career_preference.append(users_details[str(ids[i])]["user_preference"])
+        d["user_id"] = user_id
+        d["job_id"] = job_id
+        d["employer_id"] = employer_id
+        d["job_opening_date"] = job_opening_date
+        d["job_closing_date"] = job_closing_date
+        d["job_description"] = job_description
+        d["job_type"] = job_type
+        d["job_title"] = job_title
+        d["employer_title"] = employer_title
+        d["employer_description"] = employer_description
+        d["employer_sector_title"] = employer_sector_title
+        d["job_sector_title"] = job_sector_title
+        d["gender"] = gender
+        d["career_status"] = career_status
+        d["ethnicity"] = ethnicity
+        d["school_type"] = school_type
+        d["graduation_year"] = graduation_year
+        d["degree_subject_id"] = degree_subject_id
+        d["university_id"] = university_id
+        d["university_name"] = university_name
+        d["degree_subject_name"] = degree_subject_name
+        d["user_preference"] = career_preference
+        df = pd.DataFrame(d)
+        return df
