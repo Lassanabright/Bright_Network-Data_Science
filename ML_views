@@ -1,0 +1,21 @@
+from django.views.generic import TemplateView
+from web.models import Job,JobApplication,JobSector,Profile,Employer,University,Subject
+from brightnetwork.settings_dev import ML_FILES
+from django.views.generic import DetailView
+import pandas as pd
+
+
+class MachineLearningView(TemplateView):
+    template_name = "data_science/index.html"
+
+    def get_context_data(self, **kwargs):
+        context = super(MachineLearningView, self).get_context_data(**kwargs)
+        total_number_members=Profile.objects.count()
+        total_number_jobs=Job.objects.count()
+        job_applications_path = ML_FILES + "job_applications.csv"
+        applications=pd.read_csv(job_applications_path)
+        number_applications=applications.shape[0]
+        context["total_number_members"]=total_number_members
+        context["total_number_jobs"] = total_number_jobs
+        context["number_applications"]=number_applications
+        return context
