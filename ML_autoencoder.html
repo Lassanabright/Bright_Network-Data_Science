@@ -1,0 +1,56 @@
+{% extends "data_science_base.html" %}
+{% load static %}
+
+<head>
+
+    <!-- Title Page-->
+    <title>Dashboard</title>
+
+</head>
+
+<body class="animsition">
+    <div class="page-wrapper">
+        <!-- MAIN CONTENT-->
+        {% block bokeh-content %}
+            <div class="main-content" style="text-align: center;">
+                <h2>Autoencoder training</h2>
+                <div class="row">
+                   {% include 'data_science/bokeh_plot.html' %}
+                </div>
+                <h2>Distribution of the reconstruction error of the training dataset</h2>
+                <div class="row">
+                   {% include 'data_science/bokeh_training_error_plot.html' %}
+                </div>
+            </div>
+            <!-- END MAIN CONTENT-->
+        {% endblock %}
+            <!-- END PAGE CONTAINER-->
+        </div>
+
+    </div>
+
+    <!-- Jquery JS-->
+    <script src="{% static "data_science/vendor/jquery-3.2.1.min.js" %}"></script>
+    <!-- Bootstrap JS-->
+    <script src="{% static "data_science/vendor/bootstrap-4.1/popper.min.js" %}"></script>
+    <script src="{% static "data_science/vendor/bootstrap-4.1/bootstrap.min.js" %}"></script>
+    <!-- Vendor JS       -->
+    <script src="{% static "data_science/vendor/slick/slick.min.js" %}">
+    </script>
+    <script src="{% static "data_science/vendor/wow/wow.min.js" %}"></script>
+    <script src="{% static "data_science/vendor/animsition/animsition.min.js" %}"></script>
+    <script src="{% static "data_science/vendor/bootstrap-progressbar/bootstrap-progressbar.min.js" %}">
+    </script>
+    <script src="{% static "data_science/vendor/counter-up/jquery.waypoints.min.js" %}"></script>
+    <script src="{% static "data_science/vendor/counter-up/jquery.counterup.min.js" %}">
+    </script>
+    <script src="{% static "data_science/vendor/circle-progress/circle-progress.min.js" %}"></script>
+    <script src="{% static "data_science/vendor/perfect-scrollbar/perfect-scrollbar.js" %}"></script>
+    <script src="{% static "data_science/vendor/chartjs/Chart.bundle.min.js" %}"></script>
+    <script src="{% static "data_science/vendor/select2/select2.min.js" %}">
+    </script>
+
+    <!-- Main JS-->
+    <script src="{% static "data_science/js/main.js" %}"></script>
+
+</body>
